@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.0.2)
-project(osuter_filtering)
+project(ouster_filtering)
 
 set(CMAKE_BUILD_TYPE "Release")
 set(CMAKE_CXX_FLAGS "-std=c++14")
@@ -14,6 +14,7 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3 -Wall -g")
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
   cv_bridge
+  detection_msgs
   eigen_conversions
   image_transport
   message_generation
@@ -47,8 +48,8 @@ include_directories(
   ${Boost_INCLUDE_DIRS}
 )
 
-add_executable(osuter_filtering_node  src/osuter_filtering.cpp)
-target_link_libraries(osuter_filtering_node
+add_executable(ouster_filtering_node  src/ouster_filtering.cpp)
+target_link_libraries(ouster_filtering_node
    ${catkin_LIBRARIES}
    ${PCL_LIBRARIES}
    ${OpenCV_LIBRARIES}
