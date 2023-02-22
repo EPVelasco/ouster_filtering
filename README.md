@@ -17,7 +17,7 @@
 ## Clone repository
 ```
     cd ~/catkin_ws/src
-    git clone 
+    git clone https://github.com/EPVelasco/ouster_filtering.git
     cd ..
     catkin_make --only-pkg-with-deps osuter_filtering
 ```
