@@ -90,31 +90,15 @@ void callback(const ImageConstPtr& in_image,
         }
 
   cv::Mat img_range  = cv_range->image; // get image matrix of cv_range
-  Eigen::MatrixXf data_aux(4,4);
-  Eigen::Matrix<float,Dynamic,Dynamic> depth_data;
-  Eigen::Matrix<float,Dynamic,Dynamic> data_metrics;  // matrix with image values and matrix qith image values into real range data
-  //Eigen::MatrixXf depth_data(128,2048), data_metrics(128,2048);
+  Eigen::Matrix<float,Dynamic,Dynamic> depth_data , data_metrics;// matrix with image values and matrix qith image values into real range data
   cv2eigen(img_range,depth_data);       // convert img_range into eigen matrix
-
-  double minVal; 
-  double maxVal; 
-  cv::Point minLoc; 
-  cv::Point maxLoc;
-
-  minMaxLoc( img_range, &minVal, &maxVal, &minLoc, &maxLoc );
-
-  cout << "min val: " << minVal << endl;
-  cout << "max val: " << maxVal << endl;
-
-  auto max_range = depth_data.maxCoeff();
-  auto min_range = depth_data.minCoeff();
-  std::cout<<"max_range: "<<max_range<< std::endl;
-  std::cout<<"min_range: "<<min_range<< std::endl;
-
-  data_metrics = depth_data;// * (200.0/65536.0);
+  data_metrics = depth_data*(260.0/pow(2,16)); // resolution 16 bits -> 4mm. 
   
   detection_msgs::BoundingBoxes data = *bb_data;
   uint num_yolo_detection = data.bounding_boxes.size();
+
+  pcl::PointXYZRGB point;
+  pcl::PointCloud<pcl::PointXYZ>::Ptr pc_filter (new pcl::PointCloud<pcl::PointXYZ>);
 
   for(uint i=0 ;i<num_yolo_detection; i++)
 	{
@@ -124,9 +108,8 @@ void callback(const ImageConstPtr& in_image,
     uint ymax = data.bounding_boxes[i].ymax;
 
     float depth_ave = 0;   //  average distance of object
-    int cont_pix=0;        // number of pixels 
-
-    float bb_per = 0.4;  // bounding box reduction percentage 
+    uint cont_pix=0;        // number of pixels 
+    float bb_per = 0.9;  // bounding box reduction percentage 
     bb_per = bb_per/2;
 
     uint start_x = (1-bb_per) * xmin + (bb_per * xmax);
@@ -135,26 +118,17 @@ void callback(const ImageConstPtr& in_image,
     uint end_y   = (1-bb_per) * ymax + (bb_per * ymin);
  
     for (uint iy = start_y;iy<end_y; iy++)
-      for (uint ix = start_x;ix<end_x; ix++){
-
+      for (uint ix = start_x;ix<end_x; ix++)
         if(data_metrics(iy,ix)>0){
           depth_ave += data_metrics(iy,ix);
           cont_pix++;
-        }
-      }
+        }    
     
-  depth_ave = depth_ave/cont_pix;
-  std::cout<<"contador: "<<i<<"average: "<<depth_ave << std::endl;
-
+    depth_ave = depth_ave/cont_pix;
+    std::cout<<"Person: "<<i<<" average: "<<depth_ave<< std::endl;
   }
 
-
-
-
-
-  /*
-
-  P_out = cloud;
+  /*  P_out = cloud;
 
   int size_inter_Lidar = (int) P_out->points.size();
 
@@ -201,8 +175,7 @@ void callback(const ImageConstPtr& in_image,
 
       point.x = P_out->points[i].x;
       point.y = P_out->points[i].y;
-      point.z = P_out->points[i].z;
-      
+      point.z = P_out->points[i].z;      
 
       point.r = (int)color[2]; 
       point.g = (int)color[1]; 
@@ -236,19 +209,11 @@ int main(int argc, char** argv)
   nh.getParam("/maxlen", maxlen);
   nh.getParam("/minlen", minlen);
   nh.getParam("/pcTopic", pcTopic);
-  nh.getParam("/reflec_img", reflecTopic);
-  nh.getParam("/signal_img", signalTopic);
-  nh.getParam("/nearir_img", nearirTopic);
   nh.getParam("/range_img", rangeTopic);
   nh.getParam("/x_resolution", angular_resolution_x);
   nh.getParam("/ang_Y_resolution", angular_resolution_y);
   nh.getParam("/detection_BoundingBoxes", objYoloTopic);
-   
-  // ==================== Synchronizer messages ======================
-  //message_filters::Subscriber<PointCloud2> pc_sub(nh, pcTopic , 1);
-  /*message_filters::Subscriber<Image>reflec_sub(nh, reflecTopic, 1);
-  message_filters::Subscriber<Image>signal_sub(nh, signalTopic, 1);
-  message_filters::Subscriber<Image>nearir_sub(nh, nearirTopic, 1);*/
+
   message_filters::Subscriber<Image>range_sub (nh, rangeTopic,  10);
   message_filters::Subscriber<detection_msgs::BoundingBoxes> yoloBB_sub(nh, objYoloTopic , 10);
 
