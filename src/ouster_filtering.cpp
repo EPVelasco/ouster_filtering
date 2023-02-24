@@ -92,7 +92,7 @@ void callback(const ImageConstPtr& in_image,
   cv::Mat img_range  = cv_range->image; // get image matrix of cv_range
   Eigen::Matrix<float,Dynamic,Dynamic> depth_data , data_metrics;// matrix with image values and matrix qith image values into real range data
   cv2eigen(img_range,depth_data);       // convert img_range into eigen matrix
-  data_metrics = depth_data*(260.0/pow(2,16)); // resolution 16 bits -> 4mm. 
+  data_metrics = depth_data*(261/pow(2,16)); // resolution 16 bits -> 4mm. 
   
   detection_msgs::BoundingBoxes data = *bb_data;
   uint num_yolo_detection = data.bounding_boxes.size();
@@ -100,6 +100,14 @@ void callback(const ImageConstPtr& in_image,
   pcl::PointXYZRGB point;
   pcl::PointCloud<pcl::PointXYZ>::Ptr pc_filter (new pcl::PointCloud<pcl::PointXYZ>);
 
+  PointCloud::Ptr point_cloud (new PointCloud);
+  PointCloud::Ptr cloud (new PointCloud);
+  point_cloud->width = img_range.cols; 
+  point_cloud->height = img_range.rows;
+  point_cloud->is_dense = false;
+  point_cloud->points.resize (point_cloud->width * point_cloud->height);
+  uint num_pix = 0;
+  
   for(uint i=0 ;i<num_yolo_detection; i++)
 	{
     uint xmin = data.bounding_boxes[i].xmin;
@@ -109,24 +117,99 @@ void callback(const ImageConstPtr& in_image,
 
     float depth_ave = 0;   //  average distance of object
     uint cont_pix=0;        // number of pixels 
-    float bb_per = 0.9;  // bounding box reduction percentage 
+    float bb_per = 0.05;  // bounding box reduction percentage 
     bb_per = bb_per/2;
+
+    float desv = 0.1; // desviacion en porcentaje ()
+    desv = 1+desv;
 
     uint start_x = (1-bb_per) * xmin + (bb_per * xmax);
     uint end_x   = (1-bb_per) * xmax + (bb_per * xmin);
     uint start_y = (1-bb_per) * ymin + (bb_per * ymax);
     uint end_y   = (1-bb_per) * ymax + (bb_per * ymin);
- 
+
+
+    // optimizar recortando matrix de direccion a hasta b y luego sacar media
+    std::vector<float> vec_std_depth; // vector para medianas
+
     for (uint iy = start_y;iy<end_y; iy++)
       for (uint ix = start_x;ix<end_x; ix++)
-        if(data_metrics(iy,ix)>0){
-          depth_ave += data_metrics(iy,ix);
-          cont_pix++;
-        }    
-    
+          if(data_metrics(iy,ix)>0){
+            depth_ave += data_metrics(iy,ix);
+            cont_pix++;
+            vec_std_depth.push_back(data_metrics(iy,ix));
+          }
+     // condicion para que no de valores infinitos     
+    if(depth_ave == 0 && cont_pix==0){
+      cont_pix = 1;
+      vec_std_depth.push_back(0);
+    }
+
+    // punto medio 
+    int Ox = (xmax+xmin)/2;
+    int Oy = (ymax+ymin)/2;
+    float p_med = data_metrics(Oy,Ox);
+
+
+  /////// calculo de la mediana ////////////////////////////////////////
+    int n = sizeof(vec_std_depth) / sizeof(vec_std_depth[0]);  
+    sort(vec_std_depth.begin(), vec_std_depth.begin() + n, greater<int>());
+    int tam = vec_std_depth.size();
+    float median = 0;
+    if (tam % 2 == 0) {  
+        median = (vec_std_depth[((tam)/2) -1] + vec_std_depth[(tam)/2])/2.0; 
+    }      
+    else { 
+       if(tam==1)
+        median = vec_std_depth[tam];
+      else
+        median = vec_std_depth[tam/2];
+    }         
+    vec_std_depth.clear();
+    ///////////////////////////////////////////////////////
     depth_ave = depth_ave/cont_pix;
-    std::cout<<"Person: "<<i<<" average: "<<depth_ave<< std::endl;
+    std::cout<<"Person: "<<i<<" average: "<<depth_ave << " median: "<<median<< std::endl;  
+    
+
+ 
+    for (uint iy = ymin;iy<ymax; iy++)
+      for (uint ix = xmin;ix<xmax; ix++){        
+
+          // recosntruccion de la nube de puntos
+
+          if ((data_metrics(iy,ix)> -p_med*desv && data_metrics(iy,ix)< p_med*desv)){
+
+          
+
+          float ang_h = 22.5 - (45.0/128.0)*iy;
+          ang_h = ang_h*M_PI/180.0;
+          float ang_w = 184.0 - (360.0/2048.0)*ix;
+          ang_w = ang_w*M_PI/180.0;
+
+          float z = data_metrics(iy,ix) * sin(ang_h);
+          if (z<-1.0)
+            continue;
+          float y = sqrt(pow(data_metrics(iy,ix),2)-pow(z,2))*sin(ang_w);
+          float x = sqrt(pow(data_metrics(iy,ix),2)-pow(z,2))*cos(ang_w);
+
+          point_cloud->points[num_pix].x = x;
+          point_cloud->points[num_pix].y = y;
+          point_cloud->points[num_pix].z = z;
+          cloud->push_back(point_cloud->points[num_pix]); 
+          num_pix++;
+          }
+
+        } 
+         
+    
+    
   }
+
+  cloud->is_dense = true;
+  cloud->width = (int) cloud->points.size();
+  cloud->height = 1;
+  cloud->header.frame_id = "/os_sensor";
+  pc_filtered_pub.publish (cloud);
 
   /*  P_out = cloud;
 
