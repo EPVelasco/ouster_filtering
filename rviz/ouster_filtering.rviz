@@ -26,7 +26,7 @@ Panels:
     Experimental: false
     Name: Time
     SyncMode: 0
-    SyncSource: NearIr
+    SyncSource: ouster_pcl
 Preferences:
   PromptSaveOnExit: true
 Toolbars:
@@ -67,8 +67,8 @@ Visualization Manager:
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
-        Max Value: 15.780365943908691
-        Min Value: -2.578543186187744
+        Max Value: 23.460044860839844
+        Min Value: -1.8675593137741089
         Value: true
       Axis: Z
       Channel Name: intensity
@@ -132,6 +132,21 @@ Visualization Manager:
       Transport Hint: raw
       Unreliable: false
       Value: false
+    - Class: rviz/Marker
+      Enabled: true
+      Marker Topic: /visualization_marker
+      Name: Marker
+      Namespaces:
+        person: true
+      Queue Size: 100
+      Value: true
+    - Class: rviz/Axes
+      Enabled: true
+      Length: 1
+      Name: Axes
+      Radius: 0.10000000149011612
+      Reference Frame: <Fixed Frame>
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -160,25 +175,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 18.575239181518555
+      Distance: 17.536954879760742
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 0.7596607804298401
-        Y: 1.1426196098327637
-        Z: 0.5737500190734863
+        X: -2.344670057296753
+        Y: 0.9151715040206909
+        Z: 1.8341656923294067
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.4003984332084656
+      Pitch: 0.3503987491130829
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 0.09721741825342178
+      Yaw: 5.630400657653809
     Saved: ~
 Window Geometry:
   Displays:

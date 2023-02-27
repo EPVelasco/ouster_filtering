@@ -16,6 +16,11 @@
 #include <pcl/filters/filter.h>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/impl/point_types.hpp>
+#include <pcl/filters/extract_indices.h>
+#include <pcl/features/normal_3d.h>
+#include <pcl/sample_consensus/method_types.h>
+#include <pcl/sample_consensus/model_types.h>
+#include <pcl/segmentation/sac_segmentation.h>
 
 #include <iostream>
 #include <math.h>
@@ -32,11 +37,11 @@
 #include <detection_msgs/BoundingBoxes.h>
 
 #include <pcl/filters/statistical_outlier_removal.h>
+#include <visualization_msgs/Marker.h>
 
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
-#include <armadillo>
-
+#include <limits>
 #include <chrono> 
 
 using namespace Eigen;
@@ -44,10 +49,13 @@ using namespace sensor_msgs;
 using namespace message_filters;
 using namespace std;
 
-typedef pcl::PointCloud<pcl::PointXYZI> PointCloud;
+typedef pcl::PointCloud<pcl::PointXYZ> PointCloud;
+
+visualization_msgs::Marker marker;
 
 //Publisher
 ros::Publisher pc_filtered_pub; // publisher de la imagen de puntos filtrada
+ros::Publisher vis_pub; // markers
 
 float maxlen =100.0;    //maxima distancia del lidar
 float minlen = 0.01;    //minima distancia del lidar
@@ -97,17 +105,15 @@ void callback(const ImageConstPtr& in_image,
   detection_msgs::BoundingBoxes data = *bb_data;
   uint num_yolo_detection = data.bounding_boxes.size();
 
-  pcl::PointXYZRGB point;
-  pcl::PointCloud<pcl::PointXYZ>::Ptr pc_filter (new pcl::PointCloud<pcl::PointXYZ>);
-
   PointCloud::Ptr point_cloud (new PointCloud);
   PointCloud::Ptr cloud (new PointCloud);
+
   point_cloud->width = img_range.cols; 
   point_cloud->height = img_range.rows;
   point_cloud->is_dense = false;
   point_cloud->points.resize (point_cloud->width * point_cloud->height);
   uint num_pix = 0;
-  
+
   for(uint i=0 ;i<num_yolo_detection; i++)
 	{
     uint xmin = data.bounding_boxes[i].xmin;
@@ -117,7 +123,7 @@ void callback(const ImageConstPtr& in_image,
 
     float depth_ave = 0;   //  average distance of object
     uint cont_pix=0;        // number of pixels 
-    float bb_per = 0.05;  // bounding box reduction percentage 
+    float bb_per = 0.6;  // bounding box reduction percentage 
     bb_per = bb_per/2;
 
     float desv = 0.1; // desviacion en porcentaje ()
@@ -128,13 +134,12 @@ void callback(const ImageConstPtr& in_image,
     uint start_y = (1-bb_per) * ymin + (bb_per * ymax);
     uint end_y   = (1-bb_per) * ymax + (bb_per * ymin);
 
-
     // optimizar recortando matrix de direccion a hasta b y luego sacar media
     std::vector<float> vec_std_depth; // vector para medianas
 
     for (uint iy = start_y;iy<end_y; iy++)
       for (uint ix = start_x;ix<end_x; ix++)
-          if(data_metrics(iy,ix)>0){
+          if(data_metrics(iy,ix)!=0){
             depth_ave += data_metrics(iy,ix);
             cont_pix++;
             vec_std_depth.push_back(data_metrics(iy,ix));
@@ -168,18 +173,25 @@ void callback(const ImageConstPtr& in_image,
     vec_std_depth.clear();
     ///////////////////////////////////////////////////////
     depth_ave = depth_ave/cont_pix;
-    std::cout<<"Person: "<<i<<" average: "<<depth_ave << " median: "<<median<< std::endl;  
+    std::cout<<"Person: "<<i<<" average: "<<depth_ave << " median: "<<median << "Punto medio: "<<p_med<< std::endl;  
+
+    // calculo los valores maximos y minimos en cada eje para el plot de la caja
+    float x_pcl_max = -10000.0;
+    float x_pcl_min = std::numeric_limits<float>::max();
+    float y_pcl_max =-10000.0;
+    float y_pcl_min = std::numeric_limits<float>::max();
+    float z_pcl_max = -10000.0;
+    float z_pcl_min = std::numeric_limits<float>::max();
     
 
- 
-    for (uint iy = ymin;iy<ymax; iy++)
+    for (uint iy = ymin;iy<ymax; iy++){
       for (uint ix = xmin;ix<xmax; ix++){        
 
           // recosntruccion de la nube de puntos
+          if (data_metrics(iy,ix)==0)
+            continue;
 
-          if ((data_metrics(iy,ix)> -p_med*desv && data_metrics(iy,ix)< p_med*desv)){
-
-          
+          if ((data_metrics(iy,ix)> -median*desv && data_metrics(iy,ix)< median*desv)){  // filtrado por desviacion de puntos con el valor de profundidad        
 
           float ang_h = 22.5 - (45.0/128.0)*iy;
           ang_h = ang_h*M_PI/180.0;
@@ -191,92 +203,80 @@ void callback(const ImageConstPtr& in_image,
             continue;
           float y = sqrt(pow(data_metrics(iy,ix),2)-pow(z,2))*sin(ang_w);
           float x = sqrt(pow(data_metrics(iy,ix),2)-pow(z,2))*cos(ang_w);
+          //asignacion de valores maximo y minimos
+          if (z >z_pcl_max ) 
+            z_pcl_max = z;     
+          if (y >y_pcl_max ) 
+            y_pcl_max = y; 
+          if (x >x_pcl_max ) 
+            x_pcl_max = x; 
+          if (z <z_pcl_min ) 
+            z_pcl_min = z; 
+          if (y <y_pcl_min ) 
+            y_pcl_min = y; 
+          if (x <x_pcl_min ) 
+            x_pcl_min = x;
 
           point_cloud->points[num_pix].x = x;
           point_cloud->points[num_pix].y = y;
           point_cloud->points[num_pix].z = z;
           cloud->push_back(point_cloud->points[num_pix]); 
-          num_pix++;
-          }
+          num_pix++;         
 
-        } 
-         
+          }  
+        }
+    } 
+
+    std::cout<<"numero objeto: " <<i <<std::endl;
+    std::cout<<"Max x: " <<x_pcl_max<<"Min x: " <<x_pcl_min <<std::endl;
+    std::cout<<"Max y: " <<y_pcl_max<<"Min y: " <<y_pcl_min <<std::endl;    
+    std::cout<<"Max z: " <<z_pcl_max<<"Min z: " <<z_pcl_min <<std::endl; 
     
+  //for (int per=0;per<num_yolo_detection;per++)
+  //{
+
+    visualization_msgs::Marker marker;
+    marker.header.frame_id = "os_sensor";
+    marker.header.stamp = ros::Time();
+    marker.ns = "person";
+    float x_center = (x_pcl_max+x_pcl_min)/2.0 ;
+    float y_center = (y_pcl_max+y_pcl_min)/2.0 ;
+    float z_center = (z_pcl_max+z_pcl_min)/2.0 ;
+
+    // plot bounding box of personin RVIZ
+    marker.id = i;
+    marker.type = visualization_msgs::Marker::CUBE;
+    //marker.action = visualization_msgs::Marker::ADD;
+    marker.pose.position.x = x_center;
+    marker.pose.position.y = y_center;
+    marker.pose.position.z = z_center;
+    marker.pose.orientation.x = 0.0;
+    marker.pose.orientation.y = 0.0;
+    marker.pose.orientation.z = 0.0;
+    marker.pose.orientation.w = 1.0;
+    marker.scale.x = 1.0;
+    marker.scale.y = 1.0;
+    marker.scale.z = 2.0;
+    marker.color.a = 0.25; // Don't forget to set the alpha!
+    marker.color.r = (i*50.0)/255.0;
+    marker.color.g = 1.0;
+    marker.color.b = (i*50.0)/255.0;
+    //only if using a MESH_RESOURCE marker type:
+    //marker.mesh_resource = "package://pr2_description/meshes/base_v0/base.dae";   
+    vis_pub.publish( marker ); 
     
   }
+  
+  marker.action = visualization_msgs::Marker::DELETEALL;
+    
 
   cloud->is_dense = true;
   cloud->width = (int) cloud->points.size();
   cloud->height = 1;
   cloud->header.frame_id = "/os_sensor";
+  //cloud->header.stamp = in_image->header.stamp;
   pc_filtered_pub.publish (cloud);
 
-  /*  P_out = cloud;
-
-  int size_inter_Lidar = (int) P_out->points.size();
-
-  Eigen::MatrixXf Lidar_camera(3,size_inter_Lidar);
-  Eigen::MatrixXf Lidar_cam(3,1);
-  Eigen::MatrixXf pc_matrix(4,1);
-  Eigen::MatrixXf pointCloud_matrix(4,size_inter_Lidar);
-
-  unsigned int cols = in_image->width;
-  unsigned int rows = in_image->height;
-
-  uint px_data = 0; uint py_data = 0;
-
-
-  pcl::PointXYZRGB point;
-
-  pcl::PointCloud<pcl::PointXYZRGB>::Ptr pc_color (new pcl::PointCloud<pcl::PointXYZRGB>);
-
-   //P_out = cloud_out;
-
-  for (int i = 0; i < size_inter_Lidar; i++)
-  {
-      pc_matrix(0,0) = -P_out->points[i].y;   
-      pc_matrix(1,0) = -P_out->points[i].z;   
-      pc_matrix(2,0) =  P_out->points[i].x;  
-      pc_matrix(3,0) = 1.0;
-
-      Lidar_cam = Mc * (RTlc * pc_matrix);
-
-      px_data = (int)(Lidar_cam(0,0)/Lidar_cam(2,0));
-      py_data = (int)(Lidar_cam(1,0)/Lidar_cam(2,0));
-      
-      if(px_data<0.0 || px_data>=cols || py_data<0.0 || py_data>=rows)
-          continue;
-
-      int color_dis_x = (int)(255*((P_out->points[i].x)/maxlen));
-      int color_dis_z = (int)(255*((P_out->points[i].x)/10.0));
-      if(color_dis_z>255)
-          color_dis_z = 255;
-
-
-      //point cloud con color
-      cv::Vec3b & color = color_pcl->image.at<cv::Vec3b>(py_data,px_data);
-
-      point.x = P_out->points[i].x;
-      point.y = P_out->points[i].y;
-      point.z = P_out->points[i].z;      
-
-      point.r = (int)color[2]; 
-      point.g = (int)color[1]; 
-      point.b = (int)color[0];
-
-      
-      pc_color->points.push_back(point);   
-      
-      cv::circle(cv_ptr->image, cv::Point(px_data, py_data), 1, CV_RGB(255-color_dis_x,(int)(color_dis_z),color_dis_x),cv::FILLED);
-      
-    }
-    pc_color->is_dense = true;
-    pc_color->width = (int) pc_color->points.size();
-    pc_color->height = 1;
-    pc_color->header.frame_id = "velodyne";
-
-  pc_filtered_pub.publish(cv_ptr->toImageMsg());
-  pc_pub.publish (pc_color);*/
 
 }
 
@@ -304,6 +304,7 @@ int main(int argc, char** argv)
   Synchronizer<MySyncPolicy> sync(MySyncPolicy(10), range_sub, yoloBB_sub);
   sync.registerCallback(boost::bind(&callback, _1, _2));
   pc_filtered_pub = nh.advertise<PointCloud> ("/ouster_filtered", 1);  
+  vis_pub = nh.advertise<visualization_msgs::Marker>( "visualization_marker", 1 );
 
   ros::spin();
 }
