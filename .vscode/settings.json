@@ -62,6 +62,8 @@
         "typeindex": "cpp",
         "typeinfo": "cpp",
         "core": "cpp",
-        "numericaldiff": "cpp"
-    }
+        "numericaldiff": "cpp",
+        "*.ipp": "cpp"
+    },
+    "git.ignoreLimitWarning": true
 }
